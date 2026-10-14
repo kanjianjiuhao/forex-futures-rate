@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>外盘涨跌统计</title>
+<style>
+  :root{
+    --header-bg:#1E3A5F; --up:#D6263B; --down:#0B8043; --zero:#555;
+    --miss:#999; --grid:#DDE3EC; --row-a:#fff; --row-b:#F5F8FC;
+    --name-a:#E9EEF6; --name-b:#DEE6F2; --text:#333;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:"Microsoft YaHei","PingFang SC",-apple-system,sans-serif;
+    background:#f0f3f8; color:var(--text); padding:14px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:900px; margin:0 auto;}
+  .head{
+    background:var(--header-bg); color:#fff; border-radius:10px 10px 0 0;
+    padding:16px 18px; display:flex; align-items:center; justify-content:space-between;
+    flex-wrap:wrap; gap:8px;
+  }
+  .head h1{font-size:20px; font-weight:700;}
+  .head .meta{font-size:13px; opacity:.92; text-align:right;}
+  .head .meta .time{font-size:15px; font-weight:600; color:#FFE08A;}
+  .lamps{display:flex; gap:14px; align-items:center; font-size:13px;}
+  .lamp{display:flex; align-items:center; gap:5px;}
+  .dot{width:9px; height:9px; border-radius:50%; display:inline-block;}
+  .dot.g{background:#2ecc71;} .dot.r{background:#e74c3c;}
+  table{width:100%; border-collapse:collapse; background:#fff; font-size:15px;}
+  thead th{
+    background:var(--header-bg); color:#fff; font-weight:600; padding:11px 8px;
+    font-size:14px; position:sticky; top:0;
+  }
+  tbody td{padding:10px 8px; text-align:right; border-bottom:1px solid var(--grid);}
+  td.name{text-align:left; font-weight:600; color:var(--header-bg); padding-left:14px;}
+  tr:nth-child(even) td{background:var(--row-b);}
+  tr:nth-child(even) td.name{background:var(--name-b);}
+  tr:nth-child(odd) td.name{background:var(--name-a);}
+  .up{color:var(--up); font-weight:600;}
+  .down{color:var(--down); font-weight:600;}
+  .zero{color:var(--zero);}
+  .miss{color:var(--miss);}
+  .ref{font-size:12px; color:#777; line-height:1.5;}
+  .ref .cur{color:#555;}
+  .foot{
+    background:#fff; border-top:2px solid var(--grid); border-radius:0 0 10px 10px;
+    padding:12px 16px; font-size:12px; color:#999; line-height:1.7;
+  }
+  .foot .warn{color:#c0392b;}
+  .tip{
+    margin-top:10px; text-align:center; font-size:12px; color:#aaa;
+  }
+  @media (max-width:600px){
+    body{padding:6px;}
+    table{font-size:13px;}
+    thead th{font-size:12px; padding:9px 4px;}
+    tbody td{padding:8px 4px;}
+    td.name{padding-left:6px; font-size:13px;}
+    .head h1{font-size:17px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1 id="title">外盘涨跌统计</h1>
+    <div class="meta">
+      <div class="time" id="genTime">加载中…</div>
+      <div id="modeDesc"></div>
+    </div>
+    <div class="lamps">
+      <span class="lamp"><span class="dot" id="dotEm"></span><span id="lblEm">东财</span></span>
+      <span class="lamp"><span class="dot" id="dotSina"></span><span id="lblSina">新浪</span></span>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th style="text-align:left; padding-left:14px;">品种名称</th>
+        <th>收盘价</th><th>最新价</th><th>对比涨跌</th><th>涨跌幅</th><th>时间区间</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="foot">
+    <div id="refDesc"></div>
+    <div class="warn">不构成投资建议｜数据可能有延迟或错误，请谨慎参考</div>
+  </div>
+  <div class="tip">页面每 60 秒自动刷新 · 数据由 GitHub Actions 定时抓取，最新数据时间见右上角</div>
+</div>
+
+<script>
+function fmt2(v, signed){
+  if(v==null) return '—';
+  if(Math.abs(v)<0.005) return '0.00';
+  return (signed?(v>0?'+':''):'') + v.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function fmtPct(v){
+  if(v==null) return '—';
+  if(Math.abs(v)<0.005) return '0.00%';
+  return (v>0?'+':'') + v.toFixed(2) + '%';
+}
+function cls(v){
+  if(v==null) return 'miss';
+  if(Math.abs(v)<0.005) return 'zero';
+  return v>0?'up':'down';
+}
+function render(d){
+  document.getElementById('title').textContent = d.mode==='day' ? '对比15:00涨跌统计（日间）' : '隔夜涨跌统计';
+  document.getElementById('genTime').textContent = '更新于 ' + d.generated_at;
+  document.getElementById('modeDesc').textContent = d.mode_desc || '';
+  setLamp('dotEm','lblEm', d.em_ok);
+  setLamp('dotSina','lblSina', d.sina_ok);
+  document.getElementById('refDesc').textContent = d.ref_desc || '';
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = '';
+  for(const r of d.rows||[]){
+    const tr = document.createElement('tr');
+    const flag = r.flag ? ' ※' : '';
+    tr.innerHTML =
+      '<td class="name">'+r.name+'</td>'+
+      '<td class="'+(r.close==null?'miss':'')+'">'+fmt2(r.close)+'</td>'+
+      '<td class="'+(r.last==null?'miss':'')+'">'+fmt2(r.last)+'</td>'+
+      '<td class="'+cls(r.chg)+'">'+fmt2(r.chg,true)+'</td>'+
+      '<td class="'+cls(r.pct)+'">'+fmtPct(r.pct)+flag+'</td>'+
+      '<td class="ref"><span>'+(r.ref||'—')+'</span><br><span class="cur">'+(d.generated_at||'')+'</span></td>';
+    tb.appendChild(tr);
+  }
+}
+function setLamp(dotId, lblId, ok){
+  document.getElementById(dotId).className = 'dot ' + (ok?'g':'r');
+  document.getElementById(lblId).style.color = ok?'#2ecc71':'#e74c3c';
+}
+async function load(){
+  try{
+    const r = await fetch('data.json?t='+Date.now(), {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    render(await r.json());
+  }catch(e){
+    document.getElementById('genTime').textContent = '数据加载失败';
+  }
+}
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
